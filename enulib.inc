@@ -4,10 +4,10 @@
  */
  
 class enuLib {
-//    protected $enu_api = 'https://enu.io/payment';
-//    protected $enu_api_address = 'https://enu.io/address';
-    protected $enu_api = 'http://localhost:8080/payment';
-    protected $enu_api_address = 'http://localhost:8080/address';
+    protected $enu_api = 'https://enu.io/payment';
+    protected $enu_api_address = 'https://enu.io/address';
+//    protected $enu_api = 'http://localhost:8080/payment';
+//    protected $enu_api_address = 'http://localhost:8080/address';
 
     protected $api_key;
     protected $api_secret;
