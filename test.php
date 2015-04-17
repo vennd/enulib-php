@@ -27,9 +27,4 @@ else {
     printf("Failed to create payment\n");
     print($result);
 }
-
-// Create a new source address from which payments can be made. After the new source address is generated, the default address from which payments will be made is this address
-//$newSourceAddress = $enulib->createAddress();
-//printf("New source address generated: %s \n", $newSourceAddress['value'])
-
 ?>
