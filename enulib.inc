@@ -4,10 +4,9 @@
  */
  
 class enuLib {
-    protected $enu_api = 'https://enu.io/payment';
-    protected $enu_api_address = 'https://enu.io/address';
-//    protected $enu_api = 'http://localhost:8080/payment';
-//    protected $enu_api_address = 'http://localhost:8080/address';
+    protected $test_mode = true;
+    protected $enu_api_base_url = "https://enu.io";
+    protected $enu_api_test_base_url = "http://localhost:8080";
 
     protected $api_key;
     protected $api_secret;
@@ -23,8 +22,94 @@ class enuLib {
         $this->nonce = time();
     }
 
+    // Returns the base URL when constructing API calls.
+    // Test mode is only for internal use where vennd.io is running a local API server
+    public function baseURL() {
+        if($this->test_mode ==false) {
+            return $this->enu_api_base_url;
+        }
+        else {
+            return $this->enu_api_test_base_url;
+        }
+    }
 
-    public function createPayment($destination_address, $amount, $asset, $payment_id, $tx_fee) {
+    // Performs a POST HTTP against the enu API
+    public function postEnuAPI($url, $post_data, &$return_status) {
+        return $this->doEnuAPI($url, "POST", $post_data, $return_status);
+    }
+
+    // Performs a GET HTTP against the enu API
+    public function getEnuAPI($url, &$return_status) {
+        // Set POST data to be an empty array to perform a GET
+        $post_data = array();
+
+        return $this->doEnuAPI($url, "GET", $post_data, $return_status);
+    }
+
+    // Performs a POST or a GET HTTP against the enu API, as per $method.
+    public function doEnuAPI($url, $method, $post_data, &$return_status)
+    {
+        // Generate nonce
+        $nonce = time();
+
+        // encode into json
+        $post_data_json = json_encode($post_data);
+
+        // Generate the keyed hash value to post
+        $sign = hash_hmac("sha512", $post_data_json, $this->api_secret);
+
+        // Add to the headers
+        $headers = array(
+            'accessKey: ' . $this->api_key,
+            'signature: ' . $sign,
+            'nonce: ' . $nonce
+        );
+
+        // Create a CURL Handler for use
+        $ch = null;
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_URL, $url);
+        if ($method == "POST") {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data_json);
+        }
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        curl_setopt($ch, CURLOPT_CAINFO, "comodo_bundle.pem");
+
+        // Send API Request
+        $res = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        // Check for failure & Clean-up curl handler
+        if ($res === false) {
+            $e = curl_error($ch);
+            curl_close($ch);
+
+            $return_status = -1000;
+
+            return array('code' => -1000,
+                'description' => $e);
+        } else {
+            curl_close($ch);
+        }
+
+        // Decode the JSON
+        $result = json_decode($res, true);
+        // is it valid JSON?
+        if (!$result) {
+            $return_status = -1001;
+            return array('code' => -1001,
+                'description' => 'Invalid data received, please contact Vennd.io support');
+        } else {
+            $return_status = $http_code;
+        }
+
+        return $result;
+    }
+
+    public function createPayment($destination_address, $amount, $asset, $payment_id, $tx_fee, &$return_status) {
         // generate the POST data json
         $post_data = array('destinationAddress' => $destination_address,
             'amount' => $amount,
@@ -32,150 +117,51 @@ class enuLib {
             'paymentId' => $payment_id,
             'txFee' => $tx_fee);
 
-        // encode into json
-        $post_data_json = json_encode($post_data);
+        $result = $this->postEnuAPI($this->baseURL()."/payment", $post_data, $return_status);
 
-        // Generate the keyed hash value to post
-        $sign = hash_hmac("sha512", $post_data_json, $this->api_secret);
-
-        // Add to the headers
-        $headers = array(
-            'accessKey: '.$this->api_key,
-            'signature: '.$sign,
-            'nonce: '.$this->nonce
-        );
-
-        // Create a CURL Handler for use
-        $ch = null;
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_URL, $this->enu_api);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data_json);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-        curl_setopt($ch, CURLOPT_CAINFO, "comodo_bundle.pem");
-
-        // Send API Request
-        $res = curl_exec($ch);
-
-        print $res;
-
-        // Check for failure & Clean-up curl handler
-        if($res === false) {
-            $e = curl_error($ch);
-            curl_close($ch);
-            throw new EnuAPIException('Could not get reply: '.$e);
-        } else {
-            curl_close($ch);
-        }
-
-        // Decode the JSON
-        $result = json_decode($res, true);
-        // is it valid JSON?
-        if(!$result) {
-            throw new EnuAPIException('Invalid data received, please make sure connection is working and requested API exists');
+        // Expect HTTP status created (201)
+        if ($return_status == 201) {
+            $return_status = 0;
         }
 
         return $result;
     }
 
-    public function getPayment($payment_id) {
-        // generate the POST data json
-        $post_data = array();
+    public function getPayment($payment_id, &$return_status) {
+        $result = $this->getEnuAPI($this->baseURL()."/payment/".$payment_id, $return_status);
 
-        // encode into json
-        $post_data_json = json_encode($post_data);
-
-        // Generate the keyed hash value to post
-        $sign = hash_hmac("sha512", $post_data_json, $this->api_secret);
-
-        // Add to the headers
-        $headers = array(
-            'accessKey: '.$this->api_key,
-            'signature: '.$sign,
-            'nonce: '.$this->nonce
-        );
-
-        // Create a CURL Handler for use
-        $ch = null;
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_URL, $this->enu_api.'/'.$payment_id);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-        curl_setopt($ch, CURLOPT_CAINFO, "comodo_bundle.pem");
-
-        // Send API Request
-        $res = curl_exec($ch);
-
-        // Check for failure & Clean-up curl handler
-        if($res === false) {
-            $e = curl_error($ch);
-            curl_close($ch);
-            throw new EnuAPIException('Could not get reply: '.$e);
-        } else {
-            curl_close($ch);
-        }
-
-        // Decode the JSON
-        $result = json_decode($res, true);
-        // is it valid JSON?
-        if(!$result) {
-            throw new EnuAPIException('Invalid data received, please make sure connection is working and requested API exists');
+        // Expect HTTP status OK (200)
+        if ($return_status == 200) {
+            $return_status = 0;
         }
 
         return $result;
     }
 
-    public function createAddress() {
+    public function retryPayment($payment_id, &$return_status) {
+        // generate the POST data json
+        $post_data = array(
+            'paymentId' => $payment_id);
+
+        $result = $this->postEnuAPI($this->baseURL()."/payment/status/".$payment_id, $post_data, $return_status);
+
+        // Expect HTTP status OK (200)
+        if ($return_status == 200) {
+            $return_status = 0;
+        }
+
+        return $result;
+    }
+
+    public function createAddress(&$return_status) {
         // generate the POST data json
         $post_data = array();
 
-        // encode into json
-        $post_data_json = json_encode($post_data);
+        $result = $this->postEnuAPI($this->baseURL()."/address", $post_data, $return_status);
 
-        // Generate the keyed hash value to post
-        $sign = hash_hmac("sha512", $post_data_json, $this->api_secret);
-
-        // Add to the headers
-        $headers = array(
-            'accessKey: '.$this->api_key,
-            'signature: '.$sign,
-            'nonce: '.$this->nonce
-        );
-
-        // Create a CURL Handler for use
-        $ch = null;
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_URL, $this->enu_api_address);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data_json);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-        curl_setopt($ch, CURLOPT_CAINFO, "comodo_bundle.pem");
-
-        // Send API Request
-        $res = curl_exec($ch);
-
-        print $res;
-
-        // Check for failure & Clean-up curl handler
-        if($res === false) {
-            $e = curl_error($ch);
-            curl_close($ch);
-            throw new EnuAPIException('Could not get reply: '.$e);
-        } else {
-            curl_close($ch);
-        }
-
-        // Decode the JSON
-        $result = json_decode($res, true);
-        // is it valid JSON?
-        if(!$result) {
-            throw new EnuAPIException('Invalid data received, please make sure connection is working and requested API exists');
+        // Expect HTTP status created (201)
+        if ($return_status == 201) {
+            $return_status = 0;
         }
 
         return $result;
