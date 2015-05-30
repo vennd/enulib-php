@@ -18,7 +18,6 @@ $enulib = new enuLib();
 $result = $enulib->createAddress($return_status);
 
 if ($return_status == 0) {
-//    print_r($result);
     printf("New source address generated: %s, public key: %s, private key: %s \n", $result['value'], $result['publicKey'], $result['privateKey']);
 }
 else {
